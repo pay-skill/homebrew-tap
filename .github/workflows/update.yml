@@ -1,0 +1,73 @@
+name: Update Formula
+
+on:
+  repository_dispatch:
+    types: [release-published]
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Update formula
+        env:
+          VERSION: ${{ github.event.client_payload.version }}
+          SHA_LINUX_X86: ${{ github.event.client_payload.sha_linux_x86 }}
+          SHA_LINUX_ARM: ${{ github.event.client_payload.sha_linux_arm }}
+          SHA_MACOS_X86: ${{ github.event.client_payload.sha_macos_x86 }}
+          SHA_MACOS_ARM: ${{ github.event.client_payload.sha_macos_arm }}
+        run: |
+          # Strip leading 'v' from version
+          VER="${VERSION#v}"
+
+          cat > Formula/remit.rb << EOF
+          class Remit < Formula
+            desc "CLI for the Remit universal payment protocol — USDC payments for AI agents"
+            homepage "https://remit.md"
+            version "${VER}"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "https://github.com/remit-md/remit-cli/releases/download/${VERSION}/remit-aarch64-apple-darwin.tar.gz"
+                sha256 "${SHA_MACOS_ARM}"
+              end
+              on_intel do
+                url "https://github.com/remit-md/remit-cli/releases/download/${VERSION}/remit-x86_64-apple-darwin.tar.gz"
+                sha256 "${SHA_MACOS_X86}"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "https://github.com/remit-md/remit-cli/releases/download/${VERSION}/remit-aarch64-unknown-linux-gnu.tar.gz"
+                sha256 "${SHA_LINUX_ARM}"
+              end
+              on_intel do
+                url "https://github.com/remit-md/remit-cli/releases/download/${VERSION}/remit-x86_64-unknown-linux-gnu.tar.gz"
+                sha256 "${SHA_LINUX_X86}"
+              end
+            end
+
+            def install
+              bin.install "remit"
+            end
+
+            test do
+              system "#{bin}/remit", "--version"
+            end
+          end
+          EOF
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/remit.rb
+          git diff --staged --quiet && echo "No changes" && exit 0
+          git commit -m "Update remit to ${VERSION}"
+          git push
