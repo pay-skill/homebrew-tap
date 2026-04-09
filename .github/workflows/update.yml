@@ -1,0 +1,43 @@
+name: Update Formula
+
+on:
+  repository_dispatch:
+    types: [release-published]
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Extract version
+        id: version
+        run: echo "tag=${{ github.event.client_payload.tag }}" >> "$GITHUB_OUTPUT"
+
+      - name: Download binaries and compute SHA256
+        run: |
+          VERSION="${{ steps.version.outputs.tag }}"
+          BASE="https://github.com/pay-skill/pay-cli/releases/download/${VERSION}"
+          for ARTIFACT in pay-macos-arm64 pay-macos-amd64 pay-linux-arm64 pay-linux-amd64; do
+            curl -fsSL "${BASE}/${ARTIFACT}" -o "${ARTIFACT}"
+            SHA=$(sha256sum "${ARTIFACT}" | cut -d' ' -f1)
+            echo "${ARTIFACT}_SHA=${SHA}" >> "$GITHUB_ENV"
+          done
+
+      - name: Update formula
+        run: |
+          VERSION="${{ steps.version.outputs.tag }}"
+          VERSION="${VERSION#v}"
+          sed -i "s/version \".*\"/version \"${VERSION}\"/" Formula/pay.rb
+          sed -i "/pay-macos-arm64/{n;s/sha256 \".*\"/sha256 \"${pay_macos_arm64_SHA}\"/}" Formula/pay.rb
+          sed -i "/pay-macos-amd64/{n;s/sha256 \".*\"/sha256 \"${pay_macos_amd64_SHA}\"/}" Formula/pay.rb
+          sed -i "/pay-linux-arm64/{n;s/sha256 \".*\"/sha256 \"${pay_linux_arm64_SHA}\"/}" Formula/pay.rb
+          sed -i "/pay-linux-amd64/{n;s/sha256 \".*\"/sha256 \"${pay_linux_amd64_SHA}\"/}" Formula/pay.rb
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/pay.rb
+          git diff --cached --quiet || git commit -m "update pay to ${{ steps.version.outputs.tag }}"
+          git push
